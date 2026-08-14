@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate, nowtime
 
+from x_electronics_wms.x_electronics_wms.utils.stock import get_stock_position
 
 VALID_STOCK_ENTRY_TYPES = ("Receipt", "Consume", "Transfer")
 
@@ -18,6 +19,12 @@ class StockEntry(Document):
         self.validate_transaction_type()
         self.validate_warehouses()
         self.validate_items()
+
+    def before_submit(self):
+        self.prepare_valuation()
+
+    def on_submit(self):
+        self.create_stock_ledger_entries()
 
     def set_posting_datetime(self):
         """Set posting date and time when they have not been provided."""
@@ -159,3 +166,176 @@ class StockEntry(Document):
                             "for item {0}."
                         ).format(row.item)
                     )
+
+
+    def prepare_valuation(self):
+        """
+        calculates valuation rate and amount before submission.
+        we implemented receipt first.
+        """
+        for row in self.items:
+            qty = flt(row.qty)
+
+            if self.stock_entry_type == "Receipt":
+                row.valuation_rate = flt(row.incoming_rate)
+                row.amount = flt(row.qty) * flt(row.valuation_rate)
+
+            elif self.stock_entry_type in ("Consume", "Transfer"):
+                stock_position = get_stock_position(
+                    row.item,
+                    self.from_warehouse,
+                )
+
+                available_qty = flt(stock_position["qty"])
+                valuation_rate = flt(stock_position["valuation_rate"])
+
+                if available_qty <= 0:
+                    frappe.throw(
+                        (
+                            "No stock is available for items {0} "
+                            "in warehouse {1}."
+                        ).format(
+                            row.item,
+                            self.from_warehouse,
+                        )
+                    )
+
+                if qty > available_qty:
+                    frappe.throw(
+                        (
+                            "Insufficient stock for item {0} in warehouse {1}."
+                            "Available quantity is {2}, but {3} was requested."
+
+                        ).format(
+                            row.item,
+                            self.from_warehouse,
+                            available_qty,
+                            qty,
+                        )
+                    )
+
+                row.valuation_rate = valuation_rate
+                row.amount = qty * valuation_rate
+
+
+    def create_stock_ledger_entries(self):
+        """
+        creates stock ledger entries for the stock entry.
+        we implement receipt first.
+        """
+        if self.stock_entry_type == "Receipt":
+           self.create_receipt_ledger_entries()
+
+        elif self.stock_entry_type == "Consume":
+            self.create_consume_ledger_entries()
+
+        elif self.stock_entry_type == "Transfer":
+            self.create_transfer_ledger_entries()
+
+    def create_receipt_ledger_entries(self):
+        for row in self.items:
+            qty = flt(row.qty)
+            valuation_rate = flt(row.valuation_rate)
+            stock_value_difference = qty * valuation_rate
+
+            ledger_entry = frappe.get_doc(
+                {
+                    "doctype": "Stock Ledger Entry",
+                    "posting_date": self.posting_date,
+                    "posting_time": self.posting_time,
+                    "item": row.item,
+                    "warehouse": self.to_warehouse,
+                    "actual_qty": qty,
+                    "valuation_rate": valuation_rate,
+                    "stock_value_difference": stock_value_difference,
+                    "voucher_type": "Stock Entry",
+                    "voucher_no": self.name,
+                    "voucher_detail_no": row.name,
+                    "is_cancelled": 0,
+                }
+            )
+
+            ledger_entry.insert(ignore_permissions=True)
+
+    def create_consume_ledger_entries(self):
+        """
+        creates negative Stock Ledger Entries for consumed stock.
+        """
+        for row in self.items:
+            qty = flt(row.qty)
+            valuation_rate = flt(row.valuation_rate)
+
+            stock_value_difference = qty * valuation_rate
+
+            ledger_entry = frappe.get_doc(
+                {
+                    "doctype": "Stock Ledger Entry",
+                    "posting_date": self.posting_date,
+                    "posting_time":self.posting_time,
+                    "item": row.item,
+                    "warehouse": self.from_warehouse,
+                    "actual_qty": -qty,
+                    "valuation_rate": valuation_rate,
+                    "stock_value_difference": -stock_value_difference,
+                    "voucher_type": "Stock Entry",
+                    "voucher_no": self.name,
+                    "voucher_detail_no": row.name,
+                    "is_cancelled": 0, 
+                }
+            )
+
+            ledger_entry.insert(ignore_permissions=True)
+
+    def create_transfer_ledger_entries(self):
+        """
+        creates two Stock ledger entries for a warehouse transfer
+        from the source warehouse we remove items
+        to the source warehouse we add items
+        """
+
+        for row in self.items:
+            qty = flt(row.qty)
+            valuation_rate = flt(row.valuation_rate)
+            stock_value = qty * valuation_rate
+
+            # items leaving the source warehouse
+
+            source_ledger_entry = frappe.get_doc(
+                {
+                    "doctype": "Stock Ledger Entry",
+                    "posting_date": self.posting_date,
+                    "posting_time": self.posting_time,
+                    "item": row.item,
+                    "warehouse": self.from_warehouse,
+                    "actual_qty": -qty,
+                    "valuation_rate": valuation_rate,
+                    "stock_value_difference": -stock_value,
+                    "voucher_type": "Stock Entry",
+                    "voucher_no": self.name,
+                    "voucher_detail_no": row.name,
+                    "is_cancelled": 0,
+                }
+            )
+
+            source_ledger_entry.insert(ignore_permissions=True)
+
+            # same items entering the destination warehouse
+            
+            destination_ledger_entry = frappe.get_doc(
+                {
+                    "doctype": "Stock Ledger Entry",
+                    "posting_date": self.posting_date,
+                    "posting_time": self.posting_time,
+                    "item": row.item,
+                    "warehouse": self.to_warehouse,
+                    "actual_qty": qty,
+                    "valuation_rate": valuation_rate,
+                    "stock_value_difference": stock_value,
+                    "voucher_type": "Stock Entry",
+                    "voucher_no": self.name,
+                    "voucher_detail_no": row.name,
+                    "is_cancelled": 0,
+                }
+            )
+
+            destination_ledger_entry.insert(ignore_permissions=True)
