@@ -26,6 +26,12 @@ class StockEntry(Document):
     def on_submit(self):
         self.create_stock_ledger_entries()
 
+    def before_cancel(self):
+        self.validate_cancellation()
+
+    def on_cancel(self):
+        self.cancel_stock_ledger_entries()
+
     def set_posting_datetime(self):
         """Set posting date and time when they have not been provided."""
         if not self.posting_date:
@@ -320,7 +326,7 @@ class StockEntry(Document):
             source_ledger_entry.insert(ignore_permissions=True)
 
             # same items entering the destination warehouse
-            
+
             destination_ledger_entry = frappe.get_doc(
                 {
                     "doctype": "Stock Ledger Entry",
@@ -339,3 +345,85 @@ class StockEntry(Document):
             )
 
             destination_ledger_entry.insert(ignore_permissions=True)
+
+    def get_active_stock_ledger_entries(self):
+        """
+        returns active stock ledger entries that are created by this stock entry.
+        """
+        return frappe.get_all(
+            "Stock Ledger Entry",
+            filters={
+                "voucher_type": "Stock Entry",
+                "voucher_no": self.name,
+                "is_cancelled": 0,
+            },
+            fields=[
+                "name",
+                "item",
+                "warehouse",
+                "creation",
+            ],
+            order_by="creation asc",
+        )
+
+    def validate_cancellation(self):
+        # prevents cancellation when stock movements exist.
+
+        ledger_entries = self.get_active_stock_ledger_entries()
+
+        if not ledger_entries:
+            frappe.throw(
+                (
+                    "No active Stock Ledger Entries exist"
+                    "for Stock Entry {0}."
+                ).format(self.name)
+            )
+
+        for ledger_entry in ledger_entries:
+            later_entry = frappe.db.exists(
+                "Stock Ledger Entry",
+                {
+                    "item": ledger_entry.item,
+                    "warehouse": ledger_entry.warehouse,
+                    "is_cancelled": 0,
+                    "creation": [">", ledger_entry.creation],
+                    "voucher_no": ["!=", self.name],
+                },
+            )
+
+            if later_entry:
+                later_voucher = frappe.db.get_value(
+                    "Stock Ledger Entry",
+                    later_entry,
+                    "voucher_no"
+                )
+
+                frappe.throw(
+                    (
+                        "Cannot cancel Stock Entry {0} because a later "
+                        "stock movement ({1}) exists for item {2} "
+                        "in warehouse {3}. Cancel later transactions first."
+                    ).format(
+                        self.name,
+                        later_voucher,
+                        ledger_entry.item,
+                        ledger_entry.warehouse,
+                    )
+                )
+
+
+    def cancel_stock_ledger_entries(self):
+
+        # Marks this Stock Entry's ledger movements as cancelled
+
+        ledger_entries = self.get_active_stock_ledger_entries()
+
+        for ledger_entry in ledger_entries:
+            frappe.db.set_value(
+                "Stock Ledger Entry",
+                ledger_entry.name,
+                "is_cancelled",
+                1,
+                update_modified=False,
+            )
+       
