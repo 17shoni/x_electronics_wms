@@ -107,7 +107,7 @@ def get_data(filters):
 	values = {}
 
 	if filters.get("to_date"):
-		condition.append("posting_date <= %(to_date)s")
+		conditions.append("posting_date <= %(to_date)s")
 		values["to_date"] = filters.to_date
 
 	if filters.get("item"):
