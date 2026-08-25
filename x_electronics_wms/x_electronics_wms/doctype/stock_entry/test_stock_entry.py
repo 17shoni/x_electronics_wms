@@ -674,3 +674,156 @@ class TestStockEntry(FrappeTestCase):
             ].is_cancelled,
             0,
         )
+
+    def test_receipt_rejects_group_warehouse(self):
+        stock_entry = frappe.get_doc(
+            {
+                "doctype": "Stock Entry",
+                "stock_entry_type": "Receipt",
+                "to_warehouse": self.root_warehouse,
+                "items":[
+                    {
+                        "item": self.item,
+                        "qty": 5,
+                        "incoming_rate": 100,
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            stock_entry.insert(ignore_permissions=True)
+
+        stock_position = get_stock_position(
+            self.item,
+            self.root_warehouse,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["qty"],
+            0,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["stock_value"],
+            0,
+        )
+
+    def test_transfer_rejects_same_warehouse(self):
+        initial_qty = 5
+        incoming_rate = 100
+
+        self.create_receipt(
+            qty=initial_qty,
+            incoming_rate=incoming_rate,
+        )
+
+        stock_entry = frappe.get_doc(
+            {
+                "doctype": "Stock Entry",
+                "stock_entry_type": "Transfer",
+                "from_warehouse": self.main_warehouse,
+                "to_warehouse":self.main_warehouse,
+                "items": [
+                    {
+                        "item":self.item,
+                        "qty": 2,
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            stock_entry.insert(ignore_permissions=True)
+
+        stock_position = get_stock_position(
+            self.item,
+            self.main_warehouse,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["qty"],
+            initial_qty,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["stock_value"],
+            initial_qty * incoming_rate,
+        )
+
+    
+    def test_rejects_zero_quantity(self):
+        stock_entry = frappe.get_doc(
+            {
+                "doctype": "Stock Entry",
+                "stock_entry_type": "Receipt",
+                "to_warehouse": self.main_warehouse,
+                "items": [
+                    {
+                        "item": self.item,
+                        "qty": 0,
+                        "incoming_rate": 100,
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            stock_entry.insert(ignore_permissions=True)
+
+        stock_position = get_stock_position(
+            self.item,
+            self.main_warehouse,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["qty"],
+            0,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["stock_value"],
+            0,
+        )
+
+
+    def test_rejects_disabled_item(self):
+        frappe.db.set_value(
+            "Item",
+            self.item,
+            "disabled",
+            1,
+        )
+
+        stock_entry = frappe.get_doc(
+            {
+                "doctype": "Stock Entry",
+                "stock_entry_type": "Reeipt",
+                "to_warehouse": self.main_warehouse,
+                "items": [
+                    {
+                        "item": self.item,
+                        "qty": 5,
+                        "incoming_rate": 100,
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            stock_entry.insert(ignore_permissions=True)
+
+        stock_position = get_stock_position(
+            self.item,
+            self.main_warehouse,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["qty"],
+            0,
+        )
+
+        self.assertAlmostEqual(
+            stock_position["stock_value"],
+            0,
+        )
