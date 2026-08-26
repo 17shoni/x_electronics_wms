@@ -8,14 +8,17 @@
   "section_break_blye",
   "amended_from",
   "stock_entry_type",
+  "column_break_cark",
   "posting_date",
   "posting_time",
+  "warehouse_movement_section",
   "from_warehouse",
+  "column_break_ktur",
   "to_warehouse",
-  "additional_details_section",
-  "remarks",
   "items_section",
-  "items"
+  "items",
+  "additional_details_section",
+  "remarks"
  ],
  "fields": [
   {
@@ -55,21 +58,25 @@
    "reqd": 1
   },
   {
+   "depends_on": "eval:doc.stock_entry_type==\"Consume\" || doc.stock_entry_type==\"Transfer\";",
    "fieldname": "from_warehouse",
    "fieldtype": "Link",
    "label": "From Warehouse",
+   "mandatory_depends_on": "eval:doc.stock_entry_type==\"Consume\" || doc.stock_entry_type==\"Transfer\";",
    "options": "Warehouse"
   },
   {
+   "depends_on": "eval:doc.stock_entry_type==\"Receipt\" || doc.stock_entry_type==\"Transfer\";",
    "fieldname": "to_warehouse",
    "fieldtype": "Link",
    "label": "To Warehouse",
+   "mandatory_depends_on": "eval:doc.stock_entry_type==\"Receipt\" || doc.stock_entry_type==\"Transfer\";",
    "options": "Warehouse"
   },
   {
    "fieldname": "additional_details_section",
    "fieldtype": "Section Break",
-   "label": "Additional Details"
+   "label": "Additional Information"
   },
   {
    "fieldname": "remarks",
@@ -87,13 +94,26 @@
    "label": "Items",
    "options": "Stock Entry Item",
    "reqd": 1
+  },
+  {
+   "fieldname": "column_break_cark",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "warehouse_movement_section",
+   "fieldtype": "Section Break",
+   "label": "Warehouse Movement"
+  },
+  {
+   "fieldname": "column_break_ktur",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-13 10:25:56.263907",
+ "modified": "2026-08-25 16:46:50.830230",
  "modified_by": "Administrator",
  "module": "X Electronics Wms",
  "name": "Stock Entry",
